@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveTube - Pemutar Video Sederhana</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #0f0f0f;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0f0f0f;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #2a2a2a;
+            border-radius: 10px;
+        }
+        iframe {
+            aspect-ratio: 16 / 9;
+            width: 100%;
+            border-radius: 12px;
+            background: #000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .login-avatar.active {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+
+        @keyframes neon-pulse {
+            0%, 100% {
+                filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.6)) drop-shadow(0 0 5px rgba(59, 130, 246, 0.4));
+                transform: scale(1);
+            }
+            50% {
+                filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.9)) drop-shadow(0 0 15px rgba(59, 130, 246, 0.7));
+                transform: scale(1.03);
+            }
+        }
+        .neon-pulse-logo {
+            animation: neon-pulse 2s infinite ease-in-out;
+        }
+
+        .video-thumbnail {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .group:hover .video-thumbnail {
+            transform: scale(1.05);
+        }
+        
+        /* Overlay Loading */
+        #loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body class="custom-scrollbar">
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-sm font-bold tracking-widest uppercase">Menyingkronkan Data...</p>
+    </div>
+
+    <!-- Navigasi -->
+    <nav class="fixed top-0 w-full bg-[#0f0f0f]/95 backdrop-blur-md z-50 border-b border-zinc-800/50 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3 cursor-pointer neon-pulse-logo" onclick="location.reload()">
+            <img src="https://smartcap.or.id/assets/logo.png" alt="Smartcap Logo" class="h-8 md:h-9 w-auto object-contain">
+            <span class="text-lg font-bold tracking-tight">CAP___DriveTube</span>
+        </div>
+
+        <div class="hidden md:flex flex-1 max-w-md mx-10">
+            <div class="relative w-full">
+                <input id="search-input" type="text" placeholder="Cari judul atau penulis..." 
+                       class="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2 px-5 text-sm focus:outline-none focus:border-blue-500 transition"
+                       oninput="handleSearch()">
+                <button class="absolute right-3 top-2 text-zinc-500">
+                    <i data-lucide="search" size="18"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button onclick="toggleFilterModal()" class="bg-zinc-800 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-zinc-700 transition border border-zinc-700 flex items-center gap-2">
+                <i data-lucide="filter" size="16"></i> Filter
+            </button>
+            
+            <button id="header-upload-btn" onclick="handleAuthAction(toggleUploadModal)" class="hidden bg-white text-black px-5 py-2 rounded-full text-sm font-bold hover:bg-zinc-200 transition shadow-lg flex items-center gap-2">
+                <i data-lucide="plus" size="16"></i> Bagikan
+            </button>
+            
+            <div id="user-section">
+                <button onclick="toggleLoginModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-full text-sm font-bold transition">
+                    Masuk
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Konten Utama -->
+    <main class="pt-20 px-4 max-w-[1600px] mx-auto flex flex-col lg:flex-row gap-8 pb-20">
+        
+        <!-- Sisi Kiri: Video & Interaksi -->
+        <div class="flex-1">
+            <div class="relative w-full overflow-hidden rounded-xl bg-black shadow-2xl">
+                <div id="player-container" class="w-full relative">
+                    <div id="video-placeholder" class="bg-zinc-900 rounded-xl aspect-video flex flex-col justify-center items-center text-zinc-500 border border-zinc-800">
+                        <i data-lucide="clapperboard" size="48" class="mb-3 opacity-20"></i>
+                        <p id="placeholder-text">Pilih video untuk mulai menonton</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 pb-6 border-b border-zinc-800">
+                <h1 id="active-title" class="text-2xl font-black line-clamp-2">DriveTube</h1>
+                
+                <div class="flex flex-wrap items-center justify-between gap-4 mt-6">
+                    <div class="flex items-center gap-3">
+                        <img id="active-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=system" 
+                             class="w-12 h-12 rounded-full border border-zinc-700 bg-zinc-800" alt="Avatar">
+                        <div>
+                            <p id="active-author" class="font-bold text-base">Sistem</p>
+                            <p class="text-xs text-zinc-500">Bulan Unggah: <span id="active-month" class="text-blue-400 font-bold">-</span></p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <button onclick="handleAuthAction(likeCurrentVideo)" class="flex items-center gap-2 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 transition text-sm font-bold rounded-full border border-zinc-700 active:scale-95">
+                            <i data-lucide="thumbs-up" size="18"></i> <span id="active-likes">0</span>
+                        </button>
+                        
+                        <button onclick="shareCurrentVideo()" class="bg-zinc-800 hover:bg-zinc-700 px-6 py-3 rounded-full text-sm font-bold transition flex items-center gap-2 border border-zinc-700">
+                            <i data-lucide="share" size="18"></i> Salin Link
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bagian Komentar -->
+            <div class="mt-10">
+                <h3 class="text-xl font-black mb-8 flex items-center gap-2">
+                    <i data-lucide="message-circle" size="20"></i>
+                    <span id="comment-count">0</span> Diskusi
+                </h3>
+                
+                <div class="flex gap-4 mb-10">
+                    <div id="current-user-comment-avatar" class="w-10 h-10 bg-zinc-800 rounded-full flex shrink-0 items-center justify-center border border-zinc-700 overflow-hidden">
+                        <i data-lucide="user" size="18" class="text-zinc-500"></i>
+                    </div>
+                    <div class="flex-1 group">
+                        <input id="comment-input" type="text" placeholder="Tambahkan komentar..." 
+                               class="w-full bg-transparent border-b border-zinc-800 focus:border-white outline-none pb-2 text-sm transition"
+                               onfocus="handleAuthAction(() => {})"
+                               onkeydown="if(event.key === 'Enter') handleAuthAction(addComment)">
+                        <div class="flex justify-end gap-2 mt-4 opacity-0 group-focus-within:opacity-100 transition-all">
+                            <button onclick="clearCommentInput()" class="px-5 py-2 text-xs font-bold hover:bg-zinc-800 rounded-full transition">Batal</button>
+                            <button onclick="handleAuthAction(addComment)" class="px-5 py-2 text-xs font-bold bg-blue-600 rounded-full hover:bg-blue-500 transition shadow-lg">Kirim</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="comment-list" class="space-y-8"></div>
+            </div>
+        </div>
+
+        <!-- Sisi Kanan: Daftar Video -->
+        <div class="w-full lg:w-[420px] shrink-0">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xs font-black text-zinc-500 uppercase tracking-widest">Rekomendasi</h2>
+                <span id="current-filter-label" class="text-[10px] bg-blue-600/20 text-blue-400 px-3 py-1 rounded-full font-bold">Terbaru</span>
+            </div>
+            <div id="video-list" class="flex flex-col gap-6">
+                <p class="text-xs text-zinc-600 text-center py-20 italic">Menghubungkan ke database...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <div id="login-modal" class="fixed inset-0 bg-black/95 z-[200] hidden items-center justify-center p-6 backdrop-blur-xl">
+        <div class="bg-zinc-900 w-full max-w-md rounded-[2.5rem] p-10 border border-zinc-800 shadow-2xl">
+            <div class="text-center mb-10">
+                <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-blue-500/20">
+                    <i data-lucide="user-plus" class="text-white" size="36"></i>
+                </div>
+                <h2 class="text-3xl font-black">Masuk Akun</h2>
+                <p class="text-zinc-500 text-sm mt-2">Isi data diri untuk berpartisipasi</p>
+            </div>
+            <div class="space-y-6">
+                <input id="login-name" type="text" placeholder="Nama Lengkap" class="w-full bg-zinc-800/50 border border-zinc-800 rounded-2xl p-5 text-sm focus:border-blue-500 outline-none transition">
+                <input id="login-class" type="text" placeholder="Kelas" class="w-full bg-zinc-800/50 border border-zinc-800 rounded-2xl p-5 text-sm focus:border-blue-500 outline-none transition">
+                <div>
+                    <label class="text-[10px] uppercase font-black text-zinc-500 mb-4 block text-center">Pilih Karakter</label>
+                    <div id="login-avatar-selector" class="grid grid-cols-5 gap-3 max-h-48 overflow-y-auto p-1 custom-scrollbar"></div>
+                </div>
+                <button onclick="processLogin()" class="w-full bg-blue-600 text-white font-black py-5 rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 transition-all active:scale-95 uppercase tracking-widest text-sm">
+                    Konfirmasi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="upload-modal" class="fixed inset-0 bg-black/95 z-[100] hidden items-center justify-center p-6 backdrop-blur-xl">
+        <div class="bg-zinc-900 w-full max-w-md rounded-[2.5rem] p-10 border border-zinc-800 shadow-2xl">
+            <div class="flex justify-between items-center mb-10">
+                <h2 class="text-2xl font-black">Bagikan Video</h2>
+                <button onclick="toggleUploadModal()" class="hover:bg-zinc-800 p-2 rounded-full transition"><i data-lucide="x" size="28"></i></button>
+            </div>
+            <div class="space-y-6">
+                <input id="input-url" type="text" placeholder="Link Google Drive (Akses Publik)" class="w-full bg-zinc-800/50 border border-zinc-800 rounded-2xl p-5 text-sm focus:border-blue-500 outline-none">
+                <input id="input-title" type="text" placeholder="Judul Video" class="w-full bg-zinc-800/50 border border-zinc-800 rounded-2xl p-5 text-sm focus:border-blue-500 outline-none">
+                <select id="input-month" class="w-full bg-zinc-800/50 border border-zinc-800 rounded-2xl p-5 text-sm outline-none appearance-none cursor-pointer">
+                    <option value="Januari">Januari</option><option value="Februari">Februari</option><option value="Maret">Maret</option>
+                    <option value="April" selected>April</option><option value="Mei">Mei</option><option value="Juni">Juni</option>
+                    <option value="Juli">Juli</option><option value="Agustus">Agustus</option><option value="September">September</option>
+                    <option value="Oktober">Oktober</option><option value="November">November</option><option value="Desember">Desember</option>
+                </select>
+                <div class="p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800 flex items-center gap-4">
+                    <img id="upload-preview-avatar" src="" class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700">
+                    <p class="text-sm font-bold" id="upload-preview-name">Nama Anda</p>
+                </div>
+                <button onclick="addVideo()" class="w-full bg-white text-black font-black py-5 rounded-2xl hover:bg-zinc-200 shadow-xl transition-all active:scale-95 uppercase tracking-widest text-sm">
+                    Posting Sekarang
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="filter-modal" class="fixed inset-0 bg-black/95 z-[100] hidden items-center justify-center p-6 backdrop-blur-md">
+        <div class="bg-zinc-900 w-full max-w-sm rounded-[2rem] p-8 border border-zinc-800 shadow-2xl">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-xl font-black">Filter Bulan</h2>
+                <button onclick="toggleFilterModal()" class="hover:bg-zinc-800 p-2 rounded-full transition"><i data-lucide="x" size="24"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="applyFilter('Semua')" class="bg-blue-600 text-white py-4 rounded-2xl font-black text-sm col-span-2 mb-2 shadow-lg shadow-blue-600/20">Tampilkan Semua</button>
+                <script>
+                    const bulanIndo = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+                    bulanIndo.forEach(b => document.write(`<button onclick="applyFilter('${b}')" class="bg-zinc-800 py-3 rounded-xl text-xs font-bold border border-zinc-700 hover:bg-zinc-700 transition">${b}</button>`));
+                </script>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifikasi & Helper -->
+    <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-white text-black px-10 py-5 rounded-full shadow-2xl translate-y-40 transition-all duration-500 z-[300] font-black text-xs uppercase tracking-widest"></div>
+    <textarea id="copy-helper" class="fixed -top-full left-0 opacity-0"></textarea>
+
+    <script>
+        // --- KONFIGURASI ---
+        // LINK GOOGLE APPS SCRIPT ANDA SUDAH TERINTEGRASI
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxMtHHVTIohZfV46e6CBNf5O_rR5smm52ve9W9WDWImtzbB1eHT1gxg9jal1l8Evu2C/exec";
+
+        let videos = [];
+        let currentVideoId = null;
+        let currentFilterMonth = "Semua";
+        let searchQuery = "";
+        
+        let isLoggedIn = false;
+        let currentUser = null;
+        let selectedLoginAvatar = "Felix";
+
+        const seeds = ["Felix", "Aneka", "Budi", "Santi", "Roni", "Maya", "Dedi", "Lina", "Eko", "Putri", "Toni", "Sari", "Dewi", "Agus", "Bambang", "Wati", "Siska", "Jaka", "Ratih", "Dimas"];
+
+        lucide.createIcons();
+
+        // Helper UI
+        const showLoading = (show) => document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+        const isConfigured = () => SCRIPT_URL && SCRIPT_URL !== "ISI_URL_WEB_APP_ANDA_DI_SINI";
+
+        // --- CLOUD SYNC ---
+        async function fetchVideos() {
+            if (!isConfigured()) {
+                document.getElementById('placeholder-text').innerHTML = "Konfigurasi Database Diperlukan<br><span class='text-[10px] opacity-40 font-normal'>Silakan masukkan SCRIPT_URL di dalam kode JavaScript.</span>";
+                return;
+            }
+            try {
+                const res = await fetch(`${SCRIPT_URL}?action=getVideos`);
+                videos = await res.json();
+                renderVideoList();
+                if (videos.length > 0 && !currentVideoId) playVideo(videos[0].id);
+            } catch (e) {
+                showToast("Gagal Memuat Database");
+            }
+        }
+
+        async function pushAction(payload) {
+            if (!isConfigured()) return { success: false };
+            showLoading(true);
+            try {
+                const res = await fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) });
+                const data = await res.json();
+                showLoading(false);
+                return data;
+            } catch (e) {
+                showLoading(false);
+                return { success: true }; // Fallback CORS Apps Script
+            }
+        }
+
+        // --- UI LOGIC ---
+        function initLoginAvatarSelector() {
+            const selector = document.getElementById('login-avatar-selector');
+            selector.innerHTML = '';
+            seeds.forEach(seed => {
+                const btn = document.createElement('button');
+                btn.className = `login-avatar border-2 border-transparent rounded-3xl p-1 transition shrink-0 ${seed === selectedLoginAvatar ? 'active' : ''}`;
+                btn.onclick = () => {
+                    selectedLoginAvatar = seed;
+                    document.querySelectorAll('.login-avatar').forEach((el, idx) => el.classList.toggle('active', seeds[idx] === seed));
+                };
+                btn.innerHTML = `<img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}" class="w-12 h-12 rounded-2xl bg-zinc-800">`;
+                selector.appendChild(btn);
+            });
+        }
+
+        function processLogin() {
+            const name = document.getElementById('login-name').value.trim();
+            const kelas = document.getElementById('login-class').value.trim();
+            if (!name || !kelas) { showToast("Data belum lengkap!"); return; }
+            isLoggedIn = true;
+            currentUser = { name, kelas, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedLoginAvatar}` };
+            
+            document.getElementById('user-section').innerHTML = `
+                <div class="flex items-center gap-3 bg-zinc-800/80 p-1.5 pr-5 rounded-full border border-zinc-700">
+                    <img src="${currentUser.avatar}" class="w-8 h-8 rounded-full">
+                    <div class="flex flex-col leading-none"><span class="text-[10px] font-black">${currentUser.name}</span><span class="text-[8px] text-zinc-500">${currentUser.kelas}</span></div>
+                </div>`;
+            document.getElementById('header-upload-btn').classList.remove('hidden');
+            document.getElementById('current-user-comment-avatar').innerHTML = `<img src="${currentUser.avatar}" class="w-full h-full object-cover">`;
+            document.getElementById('upload-preview-avatar').src = currentUser.avatar;
+            document.getElementById('upload-preview-name').innerText = currentUser.name;
+            
+            toggleLoginModal();
+            showToast("Selamat Datang!");
+        }
+
+        function handleAuthAction(cb) {
+            if (!isLoggedIn) { toggleLoginModal(); showToast("Silakan Login Dahulu"); return; }
+            cb();
+        }
+
+        function handleSearch() {
+            searchQuery = document.getElementById('search-input').value.toLowerCase();
+            renderVideoList();
+        }
+
+        function applyFilter(m) {
+            currentFilterMonth = m;
+            document.getElementById('current-filter-label').innerText = m === 'Semua' ? 'Terbaru' : m;
+            renderVideoList();
+            toggleFilterModal();
+        }
+
+        async function addVideo() {
+            const url = document.getElementById('input-url').value;
+            const title = document.getElementById('input-title').value;
+            const month = document.getElementById('input-month').value;
+            const driveId = (url.match(/\/file\/d\/(.+?)\/|\/d\/(.+?)\/|id=(.+?)(&|$)/) || [])[1] || (url.match(/\/file\/d\/(.+?)\/|\/d\/(.+?)\/|id=(.+?)(&|$)/) || [])[2] || (url.match(/\/file\/d\/(.+?)\/|\/d\/(.+?)\/|id=(.+?)(&|$)/) || [])[3];
+            
+            if (!driveId || !title) { showToast("Data tidak valid!"); return; }
+
+            const v = { id: Date.now().toString(), title, author: currentUser.name, avatar: currentUser.avatar, month, likes: 0, driveId, comments: [] };
+            
+            await pushAction({ action: "addVideo", data: v });
+            videos.unshift(v);
+            renderVideoList();
+            playVideo(v.id);
+            toggleUploadModal();
+            document.getElementById('input-url').value = ""; document.getElementById('input-title').value = "";
+            showToast("Video Berhasil Diposting");
+        }
+
+        function renderVideoList() {
+            const el = document.getElementById('video-list');
+            el.innerHTML = '';
+            let filtered = videos.filter(v => (currentFilterMonth === "Semua" || v.month === currentFilterMonth) && (v.title.toLowerCase().includes(searchQuery) || v.author.toLowerCase().includes(searchQuery)));
+            filtered.sort((a,b) => b.id - a.id);
+
+            if (filtered.length === 0) {
+                el.innerHTML = `<div class="py-20 text-center opacity-20"><i data-lucide="video-off" class="mx-auto mb-4" size="48"></i><p class="text-xs font-bold">Kosong</p></div>`;
+                lucide.createIcons(); return;
+            }
+
+            filtered.forEach(v => {
+                const div = document.createElement('div');
+                div.className = "flex gap-4 cursor-pointer hover:bg-zinc-900 p-2.5 rounded-2xl transition group";
+                div.onclick = () => playVideo(v.id);
+                div.innerHTML = `
+                    <div class="w-44 h-24 bg-zinc-800 rounded-xl shrink-0 overflow-hidden relative border border-zinc-800 group-hover:border-blue-500/50">
+                        <img src="https://drive.google.com/thumbnail?id=${v.driveId}&sz=w1000" class="video-thumbnail" onerror="this.src='https://via.placeholder.com/400x225?text=Preview'">
+                        <div class="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/0 transition"><i data-lucide="play" class="text-white opacity-0 group-hover:opacity-100 transition" size="24"></i></div>
+                    </div>
+                    <div class="flex-1 py-1">
+                        <h4 class="text-sm font-bold line-clamp-2 leading-tight group-hover:text-blue-400 transition">${v.title}</h4>
+                        <p class="text-[10px] text-zinc-500 mt-2 font-bold uppercase">${v.author}</p>
+                        <span class="text-[9px] bg-blue-600/10 text-blue-500 px-2 py-0.5 rounded-full mt-2 inline-block font-black">${v.month}</span>
+                    </div>`;
+                el.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        function playVideo(id) {
+            const v = videos.find(v => v.id === id); if (!v) return;
+            currentVideoId = id;
+            document.getElementById('active-title').innerText = v.title;
+            document.getElementById('active-author').innerText = v.author;
+            document.getElementById('active-avatar').src = v.avatar;
+            document.getElementById('active-likes').innerText = v.likes;
+            document.getElementById('active-month').innerText = v.month;
+            renderComments(v);
+            document.getElementById('player-container').innerHTML = `<iframe src="https://drive.google.com/file/d/${v.driveId}/preview" allow="autoplay" allowfullscreen></iframe>`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function likeCurrentVideo() {
+            const v = videos.find(v => v.id === currentVideoId);
+            if (v) { 
+                v.likes++; document.getElementById('active-likes').innerText = v.likes; showToast("Suka!");
+                await pushAction({ action: "updateLikes", videoId: currentVideoId, likes: v.likes });
+            }
+        }
+
+        function shareCurrentVideo() {
+            if (!currentVideoId) return;
+            const h = document.getElementById('copy-helper');
+            h.value = window.location.href.split('?')[0] + "?v=" + currentVideoId;
+            h.select(); document.execCommand('copy'); showToast("Link Disalin");
+        }
+
+        async function addComment() {
+            const i = document.getElementById('comment-input');
+            const t = i.value.trim(); if (!t || !currentVideoId) return;
+            const v = videos.find(v => v.id === currentVideoId);
+            if (v) {
+                const c = { user: currentUser.name, text: t, time: "Baru saja", avatar: currentUser.avatar };
+                v.comments.unshift(c); i.value = ''; renderComments(v);
+                await pushAction({ action: "addComment", videoId: currentVideoId, comment: c });
+            }
+        }
+
+        function renderComments(v) {
+            const l = document.getElementById('comment-list');
+            document.getElementById('comment-count').innerText = v.comments.length;
+            l.innerHTML = v.comments.length === 0 ? `<p class="text-xs text-zinc-600 italic">Belum ada komentar.</p>` : '';
+            v.comments.forEach(c => {
+                const d = document.createElement('div');
+                d.className = "flex gap-4";
+                d.innerHTML = `
+                    <img src="${c.avatar}" class="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-1"><span class="text-sm font-black">${c.user}</span><span class="text-[9px] text-zinc-600 font-bold uppercase">${c.time}</span></div>
+                        <p class="text-sm text-zinc-400 leading-relaxed">${c.text}</p>
+                    </div>`;
+                l.appendChild(d);
+            });
+        }
+
+        function showToast(m) {
+            const t = document.getElementById('toast');
+            t.innerText = m; t.classList.remove('translate-y-40');
+            setTimeout(() => t.classList.add('translate-y-40'), 3000);
+        }
+
+        function toggleLoginModal() { let m = document.getElementById('login-modal'); m.classList.toggle('hidden'); m.classList.toggle('flex'); if(!m.classList.contains('hidden')) initLoginAvatarSelector(); }
+        function toggleUploadModal() { let m = document.getElementById('upload-modal'); m.classList.toggle('hidden'); m.classList.toggle('flex'); }
+        function toggleFilterModal() { let m = document.getElementById('filter-modal'); m.classList.toggle('hidden'); m.classList.toggle('flex'); }
+        function clearCommentInput() { document.getElementById('comment-input').value = ''; }
+
+        window.onload = async () => {
+            initLoginAvatarSelector();
+            const vId = new URLSearchParams(window.location.search).get('v');
+            await fetchVideos();
+            if (vId) playVideo(vId);
+        };
+    </script>
+</body>
+</html>
